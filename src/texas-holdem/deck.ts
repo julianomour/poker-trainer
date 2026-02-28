@@ -60,9 +60,39 @@ const SUIT_CHAR: Record<Suite, string> = {
   [Suite.Spades]: '♠',
 };
 
-/** Formata a mão no estilo "7h9d". */
+/** Formata a mão no estilo "7♥9♦". */
 export function formatHandShort(hand: PokerHand): string {
   const v = (c: Card) => (c.value >= 2 && c.value <= 9 ? String(c.value) : VALUE_CHAR[c.value] ?? '');
   const s = (c: Card) => SUIT_CHAR[c.suit];
   return `${v(hand.first)}${s(hand.first)}${v(hand.second)}${s(hand.second)}`;
+}
+
+/** Formata uma única carta no estilo "7♥". */
+export function formatCardShort(card: Card): string {
+  const v = card.value >= 2 && card.value <= 9 ? String(card.value) : VALUE_CHAR[card.value] ?? '';
+  return `${v}${SUIT_CHAR[card.suit]}`;
+}
+
+/**
+ * Distribui uma carta para cada posição, na ordem: SB primeiro, BTN por último.
+ * Retorna array na mesma ordem das posições.
+ */
+export function dealOneCardPerPosition(positions: readonly string[]): { position: string; card: Card }[] {
+  const deck = createDeck();
+  shuffle(deck);
+  return positions.map((position, i) => ({ position, card: deck[i] }));
+}
+
+/**
+ * Distribui duas cartas para cada posição (rodada completa).
+ * Ordem: 1ª carta SB→BTN, depois 2ª carta SB→BTN. Cada posição recebe uma mão de 2 cartas.
+ */
+export function dealTwoCardsPerPosition(positions: readonly string[]): { position: string; hand: PokerHand }[] {
+  const deck = createDeck();
+  shuffle(deck);
+  const n = positions.length;
+  return positions.map((position, i) => ({
+    position,
+    hand: { first: deck[i], second: deck[n + i] },
+  }));
 }
