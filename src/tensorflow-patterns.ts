@@ -12,7 +12,8 @@ export class TensorFlowPatterns {
   static readonly SUIT_MAX = 4;
   static readonly NUM_VALUES = 13;
   static readonly NUM_SUITS = 4;
-  static readonly ONE_HOT_FEATURE_LENGTH = 2 * (TensorFlowPatterns.NUM_VALUES + TensorFlowPatterns.NUM_SUITS);
+  static readonly ONE_HOT_FEATURE_LENGTH =
+    2 * (TensorFlowPatterns.NUM_VALUES + TensorFlowPatterns.NUM_SUITS);
 
   private static normalize(value: number, min: number, max: number): number {
     return (value - min) / (max - min);

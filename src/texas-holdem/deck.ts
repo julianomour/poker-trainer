@@ -13,8 +13,12 @@ export type PokerHand = {
   second: Card;
 };
 
-const VALUES = Object.values(CardValue).filter((v): v is CardValue => typeof v === 'number');
-const SUITS = Object.values(Suite).filter((s): s is Suite => typeof s === 'number');
+const VALUES = Object.values(CardValue).filter(
+  (v): v is CardValue => typeof v === 'number'
+);
+const SUITS = Object.values(Suite).filter(
+  (s): s is Suite => typeof s === 'number'
+);
 
 function createDeck(): Card[] {
   const deck: Card[] = [];
@@ -29,7 +33,7 @@ function createDeck(): Card[] {
 /**
  * Embaralha um array no local usando o algoritmo de Fisher-Yates.
  * Para cada elemento do array, troca com outro elemento sorteado aleatoriamente.
- * 
+ *
  * @param array O array a ser embaralhado. O array é modificado no local.
  */
 function shuffle<T>(array: T[]): void {
@@ -51,7 +55,13 @@ export function randomHand(): PokerHand {
   };
 }
 
-const VALUE_CHAR: Record<number, string> = { 10: 'T', 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+const VALUE_CHAR: Record<number, string> = {
+  10: 'T',
+  11: 'J',
+  12: 'Q',
+  13: 'K',
+  14: 'A',
+};
 /** Naipes com símbolos de baralho: ♥ copas, ♦ ouros, ♣ paus, ♠ espadas */
 const SUIT_CHAR: Record<Suite, string> = {
   [Suite.Hearts]: '♥',
@@ -62,14 +72,20 @@ const SUIT_CHAR: Record<Suite, string> = {
 
 /** Formata a mão no estilo "7♥9♦". */
 export function formatHandShort(hand: PokerHand): string {
-  const v = (c: Card) => (c.value >= 2 && c.value <= 9 ? String(c.value) : VALUE_CHAR[c.value] ?? '');
+  const v = (c: Card) =>
+    c.value >= 2 && c.value <= 9
+      ? String(c.value)
+      : (VALUE_CHAR[c.value] ?? '');
   const s = (c: Card) => SUIT_CHAR[c.suit];
   return `${v(hand.first)}${s(hand.first)}${v(hand.second)}${s(hand.second)}`;
 }
 
 /** Formata uma única carta no estilo "7♥". */
 export function formatCardShort(card: Card): string {
-  const v = card.value >= 2 && card.value <= 9 ? String(card.value) : VALUE_CHAR[card.value] ?? '';
+  const v =
+    card.value >= 2 && card.value <= 9
+      ? String(card.value)
+      : (VALUE_CHAR[card.value] ?? '');
   return `${v}${SUIT_CHAR[card.suit]}`;
 }
 
@@ -77,7 +93,9 @@ export function formatCardShort(card: Card): string {
  * Distribui uma carta para cada posição, na ordem: SB primeiro, BTN por último.
  * Retorna array na mesma ordem das posições.
  */
-export function dealOneCardPerPosition(positions: readonly string[]): { position: string; card: Card }[] {
+export function dealOneCardPerPosition(
+  positions: readonly string[]
+): { position: string; card: Card }[] {
   const deck = createDeck();
   shuffle(deck);
   return positions.map((position, i) => ({ position, card: deck[i] }));
@@ -86,8 +104,14 @@ export function dealOneCardPerPosition(positions: readonly string[]): { position
 /**
  * Distribui duas cartas para cada posição (rodada completa).
  * Ordem: 1ª carta SB→BTN, depois 2ª carta SB→BTN. Cada posição recebe uma mão de 2 cartas.
+ * @param positions Lista de posições (máximo 26, pois 52/2 = 26 mãos).
  */
-export function dealTwoCardsPerPosition(positions: readonly string[]): { position: string; hand: PokerHand }[] {
+export function dealTwoCardsPerPosition(
+  positions: readonly string[]
+): { position: string; hand: PokerHand }[] {
+  if (positions.length > 26) {
+    throw new Error('At most 26 positions supported (52/2 cards)');
+  }
   const deck = createDeck();
   shuffle(deck);
   const n = positions.length;
