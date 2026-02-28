@@ -12,7 +12,10 @@
     "test:run": "pnpm build && node --test 'dist/tests/**/*.test.js'",
     "lint": "tsc --noEmit"
   },
-  "keywords": ["poker", "trainer"],
+  "keywords": [
+    "poker",
+    "trainer"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.26.2",
@@ -21,6 +24,7 @@
   },
   "dependencies": {
     "express": "^4.21",
+    "tfjs@4.22": "link:tensorflow/tfjs@4.22",
     "zod": "^3.23"
   },
   "devDependencies": {

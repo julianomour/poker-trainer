@@ -1,12 +1,6 @@
-import { config } from './config/index.js';
-import { createServer } from './infrastructure/http/server.js';
+import { randomHand } from './texas-holdem-deck.js';
+import { CardValue, Suite } from './interfaces.js';
 
-async function main(): Promise<void> {
-  const { listen } = createServer(config.port);
-  await listen();
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const hand = randomHand();
+const cardStr = (value: CardValue, suit: Suite) => `${CardValue[value]} de ${Suite[suit]}`;
+console.log('Mão Texas Hold\'em:', cardStr(hand.first.value, hand.first.suit), '|', cardStr(hand.second.value, hand.second.suit));
