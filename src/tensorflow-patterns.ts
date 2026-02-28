@@ -1,4 +1,4 @@
-import type { PokerHand } from './texas-holdem-deck.js';
+import type { PokerHand } from './texas-holdem/deck.js';
 import { CardValue, Suite } from './interfaces.js';
 
 /**

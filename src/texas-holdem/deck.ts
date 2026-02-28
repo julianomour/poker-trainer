@@ -1,4 +1,4 @@
-import { CardValue, Suite } from './interfaces.js';
+import { CardValue, Suite } from '../interfaces.js';
 
 export class Card {
   constructor(
@@ -49,4 +49,20 @@ export function randomHand(): PokerHand {
     first: deck[0],
     second: deck[1],
   };
+}
+
+const VALUE_CHAR: Record<number, string> = { 10: 'T', 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+/** Naipes com símbolos de baralho: ♥ copas, ♦ ouros, ♣ paus, ♠ espadas */
+const SUIT_CHAR: Record<Suite, string> = {
+  [Suite.Hearts]: '♥',
+  [Suite.Diamonds]: '♦',
+  [Suite.Clubs]: '♣',
+  [Suite.Spades]: '♠',
+};
+
+/** Formata a mão no estilo "7h9d". */
+export function formatHandShort(hand: PokerHand): string {
+  const v = (c: Card) => (c.value >= 2 && c.value <= 9 ? String(c.value) : VALUE_CHAR[c.value] ?? '');
+  const s = (c: Card) => SUIT_CHAR[c.suit];
+  return `${v(hand.first)}${s(hand.first)}${v(hand.second)}${s(hand.second)}`;
 }
