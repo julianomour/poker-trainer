@@ -20,9 +20,17 @@ export class Table {
   /** Aposta obrigatória do big blind (em unidades). */
   static readonly BB_BLIND = 1;
 
+  /** Primeiro raise: 2.5× BB (valor para igualar = 2.5). */
+  static readonly RAISE_TO_FIRST = 2.5;
+
+  /** Re-raise: 7.5 (valor para igualar após alguém ter raiseado para 2.5). */
+  static readonly RAISE_TO_SECOND = 7.5;
+
   /**
    * Ordem de ação pré-flop: primeira decisão é UTG, última é BB (que já pagou 1).
-   * UTG → UTG+1 → … → BTN → SB → BB.
+   * Corresponde ao fluxo horário na mesa: UTG → UTG+1 → … → BTN → SB → BB.
+   * Na primeira rodada percorremos todas as posições nessa ordem; nas seguintes,
+   * a mesma ordem vale para quem ainda está na mão (quem foldou é pulado).
    */
   static readonly preflopActionOrder: string[] = [
     'UTG',
@@ -35,6 +43,11 @@ export class Table {
     'SB',
     'BB',
   ];
+
+  /** Ordem de ação em sentido horário (igual a preflopActionOrder). Usado para exibir decisões no fluxo da mesa. */
+  static get clockwiseActionOrder(): string[] {
+    return Table.preflopActionOrder;
+  }
 
   /**
    * Custo do fold por posição: o que já foi apostado e se perde ao foldar.
@@ -51,6 +64,57 @@ export class Table {
    */
   static getStack(_position: string): number {
     return Table.STACK_DEFAULT;
+  }
+
+  /**
+   * Valor já colocado na rua por posição no início do pré-flop (SB e BB já postaram).
+   */
+  static getInitialAmountIn(position: string): number {
+    if (position === 'SB') return Table.SB_BLIND;
+    if (position === 'BB') return Table.BB_BLIND;
+    return 0;
+  }
+
+  /**
+   * Dado o valor atual a igualar (currentBet), retorna o valor do próximo raise.
+   * BB (1) → primeiro raise 2.5; 2.5 → re-raise 7.5.
+   */
+  static getNextRaiseTo(currentBet: number): number {
+    if (currentBet <= Table.BB_BLIND) return Table.RAISE_TO_FIRST;
+    return Table.RAISE_TO_SECOND;
+  }
+
+  /**
+   * Custo da decisão e próximo estado da rua.
+   * - fold: custo 0 para todos (SB/BB já tiveram o blind descontado no stack inicial).
+   * - call: custo = currentBet - amountIn[position].
+   * - raise: custo = próximo valor de raise - amountIn[position]; currentBet passa a ser esse valor.
+   */
+  static getCostAndNextBet(
+    position: string,
+    action: 'fold' | 'call' | 'raise',
+    currentBet: number,
+    amountIn: Map<string, number>
+  ): { cost: number; nextBet: number; newAmountIn: Map<string, number> } {
+    const inThisPosition = amountIn.get(position) ?? Table.getInitialAmountIn(position);
+    const newAmountIn = new Map(amountIn);
+
+    if (action === 'fold') {
+      // SB/BB já têm o blind refletido no stack inicial; não desconta de novo
+      return { cost: 0, nextBet: currentBet, newAmountIn };
+    }
+
+    if (action === 'call') {
+      const cost = currentBet - inThisPosition;
+      newAmountIn.set(position, currentBet);
+      return { cost, nextBet: currentBet, newAmountIn };
+    }
+
+    // raise
+    const nextBet = Table.getNextRaiseTo(currentBet);
+    const cost = nextBet - inThisPosition;
+    newAmountIn.set(position, nextBet);
+    return { cost, nextBet, newAmountIn };
   }
 
   /**

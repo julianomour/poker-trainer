@@ -4,6 +4,7 @@ import {
 } from './texas-holdem/deck.js';
 import { getActionByGroupWithContext } from './texas-holdem/action.js';
 import { getSklanskyGroup } from './texas-holdem/sklansky.js';
+import type { SklanskyGroup } from './texas-holdem/sklansky.js';
 import { Table } from './texas-holdem/table.js';
 import {
   loadModelWeights,
@@ -18,30 +19,150 @@ async function main(): Promise<void> {
     round.map(({ position, hand }) => [position, hand])
   );
 
+  const groupByPosition = new Map<string, SklanskyGroup>();
+  for (const position of Table.clockwiseActionOrder) {
+    const hand = handByPosition.get(position)!;
+    const group: SklanskyGroup = model
+      ? (predictSklanskyGroup(model, hand) as SklanskyGroup)
+      : getSklanskyGroup(hand);
+    groupByPosition.set(position, group);
+  }
+
+  // --- Sessão 1: Definição das cartas e força da mão ---
+  console.log('--- Definição das cartas e força da mão ---');
+  for (const position of Table.clockwiseActionOrder) {
+    const hand = handByPosition.get(position)!;
+    const group = groupByPosition.get(position)!;
+    console.log(`${position} - ${formatHandShort(hand)} - grupo ${group}`);
+  }
+
+  // --- Sessão 2: Ação de todas as posições (fluxo horário: 1ª vez todas as posições, depois a mesma ordem com quem ainda está na mão) ---
+  const actionOrder = Table.clockwiseActionOrder;
+  const nPositions = actionOrder.length;
+
   let lastAction: 'fold' | 'call' | 'raise' | undefined;
   let lastPosition: string | undefined;
-  const lines = Table.preflopActionOrder.map((position) => {
-    const hand = handByPosition.get(position)!;
-    const group = model
-      ? predictSklanskyGroup(model, hand)
-      : getSklanskyGroup(hand);
-    const action = getActionByGroupWithContext(
-      group,
-      position,
-      lastAction,
-      lastPosition
+  let currentBet = Table.BB_BLIND;
+  const amountIn = new Map<string, number>(
+    Table.positions.map((p) => [p, Table.getInitialAmountIn(p)])
+  );
+  const stacks = new Map<string, number>(
+    Table.positions.map((p) => [
+      p,
+      Table.STACK_DEFAULT - Table.getInitialAmountIn(p),
+    ])
+  );
+  const folded = new Set<string>();
+  let firstToActIndex = 0; // primeira posição no sentido horário (UTG)
+  let lastAggressorIndex = nPositions - 1; // BB fecha a primeira rodada
+  const actionByPosition = new Map<string, 'fold' | 'call' | 'raise'>();
+
+  function allBetsEqual(): boolean {
+    return actionOrder.every(
+      (p) => folded.has(p) || (amountIn.get(p) ?? 0) === currentBet
     );
-    if (action !== 'fold') {
-      lastAction = action;
-      lastPosition = position;
+  }
+
+  console.log('\n--- Ação de todas as posições (fluxo horário) ---');
+  let done = false;
+  let isFirstCycle = true;
+  while (!done) {
+    if (!isFirstCycle) {
+      const firstPosition = actionOrder[firstToActIndex];
+      console.log(`\n--- Ação volta para ${firstPosition} ---`);
     }
-    const stack = Table.getStack(position);
-    const foldCost = Table.getFoldCost(position);
-    const foldInfo =
-      foldCost > 0 ? ` | stack=${stack} fold_custa=${foldCost}` : ` | stack=${stack}`;
-    return `${position} - ${formatHandShort(hand)} - grupo ${group} - ${action}${foldInfo}`;
-  });
-  console.log(lines.join('\n'));
+    isFirstCycle = false;
+    const roundStartIndex = firstToActIndex;
+    for (let i = 0; i < nPositions; i++) {
+      const idx = (roundStartIndex + i) % nPositions;
+      const position = actionOrder[idx];
+      if (folded.has(position)) continue;
+
+      const group = groupByPosition.get(position)!;
+      const action = getActionByGroupWithContext(
+        group,
+        position,
+        lastAction,
+        lastPosition
+      );
+      if (action !== 'fold') {
+        lastAction = action;
+        lastPosition = position;
+      }
+      actionByPosition.set(position, action);
+
+      const { cost, nextBet, newAmountIn } = Table.getCostAndNextBet(
+        position,
+        action,
+        currentBet,
+        amountIn
+      );
+      const prevBet = currentBet;
+      let effectiveAction = action;
+      let effectiveCost = cost;
+      let effectiveNextBet = nextBet;
+      const effectiveAmountIn = new Map(newAmountIn);
+
+      if (action === 'raise' && nextBet <= prevBet) {
+        const inThisPosition = amountIn.get(position) ?? Table.getInitialAmountIn(position);
+        effectiveAction = 'call';
+        effectiveCost = prevBet - inThisPosition;
+        effectiveNextBet = prevBet;
+        effectiveAmountIn.set(position, prevBet);
+        lastAction = 'call';
+        lastPosition = position;
+      }
+
+      currentBet = effectiveNextBet;
+      effectiveAmountIn.forEach((v, p) => amountIn.set(p, v));
+      const stackAfter = (stacks.get(position) ?? Table.STACK_DEFAULT) - effectiveCost;
+      stacks.set(position, stackAfter);
+
+      if (effectiveAction === 'fold') folded.add(position);
+      if (effectiveAction === 'raise' && effectiveNextBet > prevBet) {
+        lastAggressorIndex = idx;
+        firstToActIndex = (idx + 1) % nPositions;
+      }
+
+      actionByPosition.set(position, effectiveAction);
+
+      const foldCost = Table.getFoldCost(position);
+      const foldInfo =
+        foldCost > 0
+          ? ` | stack=${stackAfter} fold_custa=${foldCost}`
+          : ` | stack=${stackAfter}`;
+      console.log(`${position} - ${effectiveAction} (custo ${effectiveCost})${foldInfo}`);
+
+      if (folded.size >= nPositions - 1) {
+        done = true;
+        break;
+      }
+      if (idx === lastAggressorIndex && allBetsEqual()) {
+        done = true;
+        break;
+      }
+    }
+    if (done) break;
+    // Ação circular: após um raise, a próxima posição age; quando se fecha no BB (ou último agressor), volta para quem estava na frente do raise
+  }
+
+  // --- Sessão 3: Resultado final (1 vencedor ou apostas equivalentes) ---
+  const potTotal = Array.from(amountIn.values()).reduce((a, b) => a + b, 0);
+  const remaining = actionOrder.filter((p) => !folded.has(p));
+  console.log('\n--- Resultado final ---');
+  console.log(`Pote: ${potTotal}`);
+  if (remaining.length === 1) {
+    console.log(`Vencedor (sem showdown): ${remaining[0]}`);
+  } else {
+    console.log(`Apostas iguais (${currentBet}); jogadores no showdown: ${remaining.join(', ')}`);
+  }
+  for (const position of Table.clockwiseActionOrder) {
+    const stack = stacks.get(position) ?? 0;
+    const action = actionByPosition.get(position) ?? 'fold';
+    const status = folded.has(position) ? 'fold' : 'ativo';
+    console.log(`${position} - stack ${stack} - ${action} - ${status}`);
+  }
+
   if (!model) {
     console.log(
       '\n(Dica: rode "pnpm run train" para treinar e salvar o modelo; os grupos Sklansky estão sendo usados pelas regras.)'
