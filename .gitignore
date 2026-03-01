@@ -6,3 +6,4 @@
 coverage
 .vitest
 model-weights.json
+.cursor

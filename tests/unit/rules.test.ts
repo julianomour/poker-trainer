@@ -21,19 +21,39 @@ function hand(
 
 describe('rules', () => {
   describe('classifyHand', () => {
-    it('classifies pair strong (JJ+)', () => {
-      const h = hand(
+    it('classifies pair strong (88+)', () => {
+      const jj = hand(
         CardValue.Jack,
         Suite.Hearts,
         CardValue.Jack,
         Suite.Spades
       );
-      assert.deepStrictEqual(TexasHoldem.classifyHand(h), ['pair', 'strong']);
+      assert.deepStrictEqual(TexasHoldem.classifyHand(jj), ['pair', 'strong']);
+      const eightEight = hand(
+        CardValue.Eight,
+        Suite.Clubs,
+        CardValue.Eight,
+        Suite.Diamonds
+      );
+      assert.deepStrictEqual(TexasHoldem.classifyHand(eightEight), [
+        'pair',
+        'strong',
+      ]);
     });
 
-    it('classifies pair weak (22, 33, ...)', () => {
+    it('classifies pair weak (22–77)', () => {
       const h = hand(CardValue.Two, Suite.Clubs, CardValue.Two, Suite.Diamonds);
       assert.deepStrictEqual(TexasHoldem.classifyHand(h), ['pair', 'weak']);
+      const sevenSeven = hand(
+        CardValue.Seven,
+        Suite.Hearts,
+        CardValue.Seven,
+        Suite.Spades
+      );
+      assert.deepStrictEqual(TexasHoldem.classifyHand(sevenSeven), [
+        'pair',
+        'weak',
+      ]);
     });
 
     it('classifies suited strong (e.g. AKs)', () => {

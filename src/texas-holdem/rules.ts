@@ -12,7 +12,10 @@ export type ClassifiedHand = PokerHand & {
   hand_strength: HandStrengthCategory;
 };
 
-const STRONG_THRESHOLD = 11; // JJ+
+/** Par forte = 88+ (88, 99, TT, JJ, QQ, KK, AA). Par fraco = 22–77. */
+const PAIR_STRONG_THRESHOLD = 8;
+/** Para suited/off suited: strong = pelo menos uma carta ≥ J (AJ+ etc.). */
+const NON_PAIR_STRONG_THRESHOLD = 11;
 
 export class TexasHoldem {
   /**
@@ -23,8 +26,8 @@ export class TexasHoldem {
    * Exemplo: ['pair', 'strong'] refere-se a pares de mão inicial fortes (AA, KK, QQ...).
    */
   static readonly hand_strength: readonly HandStrengthCategory[] = [
-    ['pair', 'strong'], // Ex: AA, KK, QQ, JJ
-    ['pair', 'weak'], // Ex: 22, 33, 44, pares baixos
+    ['pair', 'strong'], // Ex: 88, 99, TT, JJ, QQ, KK, AA (88+)
+    ['pair', 'weak'], // Ex: 22–77
     ['suited', 'strong'], // Duas cartas do mesmo naipe, valores altos (Ex: AKs, QJs)
     ['suited', 'weak'], // Duas cartas do mesmo naipe, valores baixos/desconectados
     ['off suited', 'strong'], // Duas cartas de naipes diferentes, valores altos (Ex: AKo)
@@ -65,10 +68,15 @@ export class TexasHoldem {
     const { first, second } = hand;
     const isPair = first.value === second.value;
     const isSuited = first.suit === second.suit;
+    if (isPair) {
+      const level =
+        first.value >= PAIR_STRONG_THRESHOLD ? 'strong' : 'weak';
+      return ['pair', level];
+    }
     const hasHigh =
-      first.value >= STRONG_THRESHOLD || second.value >= STRONG_THRESHOLD;
+      first.value >= NON_PAIR_STRONG_THRESHOLD ||
+      second.value >= NON_PAIR_STRONG_THRESHOLD;
     const level = hasHigh ? 'strong' : 'weak';
-    if (isPair) return ['pair', level];
     if (isSuited) return ['suited', level];
     return ['off suited', level];
   }

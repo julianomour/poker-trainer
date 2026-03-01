@@ -4,18 +4,21 @@ import { join } from 'node:path';
 import { randomHand } from './texas-holdem/deck.js';
 import { TexasHoldem } from './texas-holdem/rules.js';
 import type { HandStrengthCategory } from './texas-holdem/rules.js';
+import { getSklanskyGroup, sklanskyGroupToOneHot } from './texas-holdem/sklansky.js';
+import type { SklanskyGroup } from './texas-holdem/sklansky.js';
 import { TensorFlowPatterns } from './tensorflow-patterns.js';
 import type { PokerHand } from './texas-holdem/deck.js';
 
 const INPUT_DIM = TensorFlowPatterns.ONE_HOT_FEATURE_LENGTH; // 34
-const NUM_CLASSES = TexasHoldem.hand_strength.length; // 6
+/** Grupos Sklansky 1–8 (grupo de mãos poker por posição). */
+const NUM_CLASSES = 8;
 
 /** Caminho padrão para o arquivo de pesos (na raiz do projeto). */
 export const DEFAULT_WEIGHTS_PATH = join(process.cwd(), 'model-weights.json');
 
 /**
- * Cria o modelo para classificação da força da mão (6 categorias).
- * Entrada: vetor one-hot da mão (34 dims). Saída: softmax sobre as 6 categorias.
+ * Cria o modelo para classificação do grupo Sklansky (8 classes).
+ * Entrada: vetor one-hot da mão (34 dims). Saída: softmax sobre os 8 grupos.
  */
 export function createModel(): tf.Sequential {
   const model = tf.sequential();
@@ -43,6 +46,8 @@ export function createModel(): tf.Sequential {
 
 /**
  * Gera dados de treino: N mãos aleatórias com features (X) e labels one-hot (y).
+ * Labels vêm dos grupos Sklansky (getSklanskyGroup); o modelo aprende a replicar essa classificação.
+ * A ação (fold/call/raise) é decidida por getActionByGroup(grupo, posição).
  */
 function generateTrainingData(nSamples: number): {
   X: number[][];
@@ -54,13 +59,7 @@ function generateTrainingData(nSamples: number): {
     hands.push(randomHand());
   }
   const X = encoder.handsToBatch(hands, true);
-  const y = hands.map((hand) => {
-    const category = TexasHoldem.classifyHand(hand);
-    return TexasHoldem.handStrengthToOneHot({
-      ...hand,
-      hand_strength: category,
-    });
-  });
+  const y = hands.map((hand) => sklanskyGroupToOneHot(getSklanskyGroup(hand)));
   return { X, y };
 }
 
@@ -80,7 +79,7 @@ const DEFAULT_OPTIONS: Required<TrainOptions> = {
 };
 
 /**
- * Treina o modelo para prever a força da mão a partir do vetor one-hot da mão.
+ * Treina o modelo para prever o grupo Sklansky (1–8) a partir do vetor one-hot da mão.
  * Retorna o modelo treinado e o histórico.
  */
 export async function trainHandStrengthModel(
@@ -161,7 +160,12 @@ export function loadModelWeights(
   }
   const model = createModel();
   const tensors = saved.weights.map((w) => tf.tensor(w.data, w.shape));
-  model.setWeights(tensors);
+  try {
+    model.setWeights(tensors);
+  } catch {
+    tensors.forEach((t) => t.dispose());
+    return null;
+  }
   tensors.forEach((t) => t.dispose());
   return model;
 }
@@ -169,13 +173,13 @@ export function loadModelWeights(
 const encoder = new TensorFlowPatterns();
 
 /**
- * Classifica a força da mão usando o modelo treinado.
- * Retorna a categoria [tipo, nível] no mesmo formato das regras.
+ * Classifica a mão usando o modelo treinado (8 grupos Sklansky).
+ * Retorna o grupo 1–8. Use getActionByGroup(grupo, posição) para a ação.
  */
-export function predictHandStrength(
+export function predictSklanskyGroup(
   model: tf.Sequential,
   hand: PokerHand
-): HandStrengthCategory {
+): SklanskyGroup {
   const vec = encoder.handToFeatureVectorOneHot(hand);
   const input = tf.tensor2d([vec]);
   const out = model.predict(input) as tf.Tensor;
@@ -186,6 +190,20 @@ export function predictHandStrength(
   for (let i = 1; i < probs.length; i++) {
     if (probs[i] > probs[maxIdx]) maxIdx = i;
   }
-  const [type, level] = TexasHoldem.hand_strength[maxIdx];
-  return [type, level];
+  return (maxIdx + 1) as SklanskyGroup;
+}
+
+/**
+ * Classifica a força da mão usando o modelo treinado (8 grupos Sklansky).
+ * Converte grupo em categoria legada [tipo, nível] para compatibilidade.
+ * Prefira predictSklanskyGroup + getActionByGroup para decisão.
+ */
+export function predictHandStrength(
+  model: tf.Sequential,
+  hand: PokerHand
+): HandStrengthCategory {
+  const group = predictSklanskyGroup(model, hand);
+  const category = TexasHoldem.classifyHand(hand);
+  const level = group <= 4 ? 'strong' : 'weak';
+  return [category[0], level];
 }

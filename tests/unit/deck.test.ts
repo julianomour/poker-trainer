@@ -71,11 +71,11 @@ describe('deck', () => {
       );
     });
 
-    it('throws when more than 26 positions', () => {
-      const positions = Array.from({ length: 27 }, (_, i) => `P${i}`);
+    it('throws when more than 9 positions', () => {
+      const positions = Array.from({ length: 10 }, (_, i) => `P${i}`);
       assert.throws(
         () => dealTwoCardsPerPosition(positions),
-        /At most 26 positions/
+        /At most 9 positions/
       );
     });
   });

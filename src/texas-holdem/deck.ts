@@ -104,13 +104,13 @@ export function dealOneCardPerPosition(
 /**
  * Distribui duas cartas para cada posição (rodada completa).
  * Ordem: 1ª carta SB→BTN, depois 2ª carta SB→BTN. Cada posição recebe uma mão de 2 cartas.
- * @param positions Lista de posições (máximo 26, pois 52/2 = 26 mãos).
+ * @param positions Lista de posições (máximo 9, ex.: mesa full ring).
  */
 export function dealTwoCardsPerPosition(
   positions: readonly string[]
 ): { position: string; hand: PokerHand }[] {
-  if (positions.length > 26) {
-    throw new Error('At most 26 positions supported (52/2 cards)');
+  if (positions.length > 9) {
+    throw new Error('At most 9 positions supported');
   }
   const deck = createDeck();
   shuffle(deck);

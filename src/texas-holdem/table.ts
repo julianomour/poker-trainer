@@ -11,6 +11,48 @@ export class Table {
     'BTN',
   ];
 
+  /** Stack inicial por jogador (em unidades, ex.: 100 big blinds). */
+  static readonly STACK_DEFAULT = 100;
+
+  /** Aposta obrigatória do small blind (em unidades). */
+  static readonly SB_BLIND = 0.5;
+
+  /** Aposta obrigatória do big blind (em unidades). */
+  static readonly BB_BLIND = 1;
+
+  /**
+   * Ordem de ação pré-flop: primeira decisão é UTG, última é BB (que já pagou 1).
+   * UTG → UTG+1 → … → BTN → SB → BB.
+   */
+  static readonly preflopActionOrder: string[] = [
+    'UTG',
+    'UTG+1',
+    'UTG+2',
+    'MP',
+    'HJ',
+    'CO',
+    'BTN',
+    'SB',
+    'BB',
+  ];
+
+  /**
+   * Custo do fold por posição: o que já foi apostado e se perde ao foldar.
+   * UTG–BTN: 0; SB: 0.5 (blind); BB: 1 (blind).
+   */
+  static getFoldCost(position: string): number {
+    if (position === 'SB') return Table.SB_BLIND;
+    if (position === 'BB') return Table.BB_BLIND;
+    return 0;
+  }
+
+  /**
+   * Retorna o stack inicial para uma posição (todas começam com STACK_DEFAULT).
+   */
+  static getStack(_position: string): number {
+    return Table.STACK_DEFAULT;
+  }
+
   /**
    * Peso da posição (0 = pior, 1 = melhor).
    * SB é a pior posição; BTN é a melhor.

@@ -1,6 +1,6 @@
 # poker-trainer
 
-Backend de treino e classificação de força de mão pré-flop para Texas Hold'em. Gera mãos aleatórias por posição, classifica-as por regras (pair/suited/off suited × strong/weak) e opcionalmente usa um modelo TensorFlow.js treinado para prever a categoria.
+Backend de treino e classificação de força de mão pré-flop para Texas Hold'em. Usa os **grupos Sklansky (1–8)** definidos em `src/grupo de mãos poker por posição.md`: gera mãos por posição, classifica por grupo e decide a ação (fold/call/raise) com base no grupo e na posição. Opcionalmente um modelo TensorFlow.js treinado prevê o grupo (8 classes).
 
 ## Pré-requisitos
 
@@ -29,8 +29,8 @@ pnpm install
 ## Modelo e pesos
 
 - **Pesos**: salvos na raiz do projeto em `model-weights.json` após `pnpm run train`.
-- Se o arquivo não existir ou estiver corrompido, o `start` usa apenas as regras de classificação (sem modelo).
-- Treino: entrada = vetor one-hot da mão (34 dims), saída = 6 categorias (pair/suited/off suited × strong/weak).
+- Se o arquivo não existir ou estiver corrompido, o `start` usa os grupos Sklansky por regra (sem modelo).
+- **Força da mão**: definida pelos **grupos Sklansky (1–8)** conforme `src/grupo de mãos poker por posição.md` (UTG/early = 1–3, MP = 1–5, CO/BTN = 1–7, SB/BB = 1–8). O **modelo** prevê o grupo (8 classes). A **ação** é decidida por `getActionByGroup(grupo, posição)`: fold se grupo > max da posição; raise se grupo 1–2; call se 3–max.
 
 ## Treino configurável
 
@@ -43,8 +43,9 @@ Valores padrão: 30.000 amostras, 20 épocas, 20% validação.
 
 ## Estrutura principal
 
-- `src/texas-holdem/`: baralho, regras de classificação, posições da mesa.
-- `src/train-hand-strength.ts`: criação do modelo, treino, carga/salvamento de pesos, previsão.
+- `src/texas-holdem/`: baralho, regras (pair strong 88+), **sklansky** (grupos 1–8, getSklanskyGroup, getMaxGroupForPosition), posições, **action** (getAction, getActionByGroup, getActionWithContext), **range**.
+- `src/grupo de mãos poker por posição.md`: tabela Sklansky e recomendações por posição.
+- `src/train-hand-strength.ts`: modelo 8 classes (grupos Sklansky), treino, predictSklanskyGroup, predictHandStrength (compat).
 - `src/run-train.ts`: script de treino (env/CLI).
-- `src/index.ts`: entrada do trainer (gera mãos e exibe força por posição).
-- `tests/unit/`: testes unitários (deck, rules, table, train-hand-strength, config).
+- `src/index.ts`: entrada do trainer (grupo + ação por posição).
+- `tests/unit/`: testes (deck, rules, table, action, range, sklansky, train-hand-strength, config).

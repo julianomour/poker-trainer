@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   createModel,
   predictHandStrength,
+  predictSklanskyGroup,
 } from '../../src/train-hand-strength.js';
 import { Card } from '../../src/texas-holdem/deck.js';
 import { TexasHoldem } from '../../src/texas-holdem/rules.js';
@@ -22,7 +23,7 @@ function hand(
 
 describe('train-hand-strength', () => {
   describe('createModel', () => {
-    it('has input shape [null, 34] and output 6 units (softmax)', () => {
+    it('has input shape [null, 34] and output 8 units (softmax, Sklansky)', () => {
       const model = createModel();
       const layers = model.layers;
       assert.ok(layers.length >= 1);
@@ -32,11 +33,20 @@ describe('train-hand-strength', () => {
       assert.strictEqual(inputShape[inputShape.length - 1], 34);
       const outputLayer = layers[layers.length - 1];
       const config = outputLayer.getConfig();
-      assert.strictEqual((config as { units?: number }).units, 6);
+      assert.strictEqual((config as { units?: number }).units, 8);
       assert.strictEqual(
         (config as { activation?: string }).activation,
         'softmax'
       );
+    });
+  });
+
+  describe('predictSklanskyGroup', () => {
+    it('returns a group between 1 and 8', () => {
+      const model = createModel();
+      const h = hand(CardValue.Ace, Suite.Hearts, CardValue.King, Suite.Hearts);
+      const group = predictSklanskyGroup(model, h);
+      assert.ok(group >= 1 && group <= 8, `expected group 1-8, got ${group}`);
     });
   });
 
