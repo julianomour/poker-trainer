@@ -1,4 +1,9 @@
 export class Table {
+  /**
+   * Mesa no-limit: tamanho das apostas baseado no pote (com teto por rodada).
+   * All-in pode ocorrer quando a análise da mão (grupo Sklansky + posição) levar a raise/call
+   * e o stack for insuficiente; não é regra fixa, depende da situação.
+   */
   static readonly positions: string[] = [
     'SB',
     'BB',
@@ -20,11 +25,8 @@ export class Table {
   /** Aposta obrigatória do big blind (em unidades). */
   static readonly BB_BLIND = 1;
 
-  /** Primeiro raise: 2.5× BB (valor para igualar = 2.5). */
-  static readonly RAISE_TO_FIRST = 2.5;
-
-  /** Re-raise: 7.5 (valor para igualar após alguém ter raiseado para 2.5). */
-  static readonly RAISE_TO_SECOND = 7.5;
+  /** Raise mínimo: adiciona pelo menos 1 BB ao valor atual (evita raise microscópico com pote pequeno). */
+  static readonly MIN_RAISE_ADD = 1;
 
   /**
    * Ordem de ação pré-flop: primeira decisão é UTG, última é BB (que já pagou 1).
@@ -75,20 +77,34 @@ export class Table {
     return 0;
   }
 
+  /** Raise máximo por vez (em BB): limita o tamanho do raise para fechar as rodadas sem forçar all-in. */
+  static readonly MAX_RAISE_ADD = 3;
+
+  /** Número máximo de raises por rua: após isso só fold ou call (fecha a rodada de apostas). */
+  static readonly MAX_RAISES_PER_STREET = 4;
+
   /**
-   * Dado o valor atual a igualar (currentBet), retorna o valor do próximo raise.
-   * BB (1) → primeiro raise 2.5; 2.5 → re-raise 7.5.
+   * Valor do próximo raise com base no pote atual, limitado para fechar as rodadas.
+   * raiseSize = min(max(pote, MIN_RAISE_ADD), MAX_RAISE_ADD * BB); nextBet = currentBet + raiseSize.
    */
-  static getNextRaiseTo(currentBet: number): number {
-    if (currentBet <= Table.BB_BLIND) return Table.RAISE_TO_FIRST;
-    return Table.RAISE_TO_SECOND;
+  static getNextRaiseTo(currentBet: number, pot: number): number {
+    const raiseSize = Math.min(
+      Math.max(pot, Table.MIN_RAISE_ADD),
+      Table.MAX_RAISE_ADD * Table.BB_BLIND
+    );
+    return currentBet + raiseSize;
+  }
+
+  /** Calcula o pote atual (soma do que cada posição já colocou na rua). */
+  static getPot(amountIn: Map<string, number>): number {
+    return Array.from(amountIn.values()).reduce((a, b) => a + b, 0);
   }
 
   /**
    * Custo da decisão e próximo estado da rua.
    * - fold: custo 0 para todos (SB/BB já tiveram o blind descontado no stack inicial).
    * - call: custo = currentBet - amountIn[position].
-   * - raise: custo = próximo valor de raise - amountIn[position]; currentBet passa a ser esse valor.
+   * - raise: custo = nextBet - amountIn[position], com nextBet = currentBet + max(pote, MIN_RAISE_ADD).
    */
   static getCostAndNextBet(
     position: string,
@@ -100,7 +116,6 @@ export class Table {
     const newAmountIn = new Map(amountIn);
 
     if (action === 'fold') {
-      // SB/BB já têm o blind refletido no stack inicial; não desconta de novo
       return { cost: 0, nextBet: currentBet, newAmountIn };
     }
 
@@ -110,8 +125,8 @@ export class Table {
       return { cost, nextBet: currentBet, newAmountIn };
     }
 
-    // raise
-    const nextBet = Table.getNextRaiseTo(currentBet);
+    const pot = Table.getPot(amountIn);
+    const nextBet = Table.getNextRaiseTo(currentBet, pot);
     const cost = nextBet - inThisPosition;
     newAmountIn.set(position, nextBet);
     return { cost, nextBet, newAmountIn };
