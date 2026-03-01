@@ -28,6 +28,14 @@ async function main(): Promise<void> {
     groupByPosition.set(position, group);
   }
 
+  // Helper: obtém grupo da mão consultando o modelo (usado a cada decisão).
+  function getGroupForDecision(position: string): SklanskyGroup {
+    const hand = handByPosition.get(position)!;
+    return model
+      ? (predictSklanskyGroup(model, hand) as SklanskyGroup)
+      : getSklanskyGroup(hand);
+  }
+
   // --- Sessão 1: Definição das cartas e força da mão ---
   console.log('--- Definição das cartas e força da mão ---');
   for (const position of Table.clockwiseActionOrder) {
@@ -55,6 +63,7 @@ async function main(): Promise<void> {
   const folded = new Set<string>();
   let firstToActIndex = 0; // primeira posição no sentido horário (UTG)
   let lastAggressorIndex = nPositions - 1; // BB fecha a primeira rodada
+  let raiseCount = 0; // número de raises na rua; após MAX_RAISES_PER_STREET só fold/call
   const actionByPosition = new Map<string, 'fold' | 'call' | 'raise'>();
 
   function allBetsEqual(): boolean {
@@ -68,8 +77,21 @@ async function main(): Promise<void> {
   let isFirstCycle = true;
   while (!done) {
     if (!isFirstCycle) {
-      const firstPosition = actionOrder[firstToActIndex];
-      console.log(`\n--- Ação volta para ${firstPosition} ---`);
+      if (allBetsEqual()) {
+        done = true;
+        break;
+      }
+      // Posição que "recebe" a volta = anterior ao primeiro não-folded que vai agir (mesa rodou até ela)
+      let firstNonFoldedIdx = firstToActIndex;
+      for (let k = 0; k < nPositions; k++) {
+        const j = (firstToActIndex + k) % nPositions;
+        if (!folded.has(actionOrder[j])) {
+          firstNonFoldedIdx = j;
+          break;
+        }
+      }
+      const returnToPosition = actionOrder[(firstNonFoldedIdx - 1 + nPositions) % nPositions];
+      console.log(`\n--- Ação volta para ${returnToPosition} ---`);
     }
     isFirstCycle = false;
     const roundStartIndex = firstToActIndex;
@@ -78,13 +100,17 @@ async function main(): Promise<void> {
       const position = actionOrder[idx];
       if (folded.has(position)) continue;
 
-      const group = groupByPosition.get(position)!;
-      const action = getActionByGroupWithContext(
+      // Cada decisão: identifica ação anterior, consulta o modelo (pesos) e determina a ação.
+      const group = getGroupForDecision(position);
+      let action = getActionByGroupWithContext(
         group,
         position,
         lastAction,
         lastPosition
       );
+      if (action === 'raise' && raiseCount >= Table.MAX_RAISES_PER_STREET) {
+        action = 'call';
+      }
       if (action !== 'fold') {
         lastAction = action;
         lastPosition = position;
@@ -103,12 +129,28 @@ async function main(): Promise<void> {
       let effectiveNextBet = nextBet;
       const effectiveAmountIn = new Map(newAmountIn);
 
+      const stackNow = stacks.get(position) ?? Table.STACK_DEFAULT;
+      const inThisPosition = amountIn.get(position) ?? Table.getInitialAmountIn(position);
+
       if (action === 'raise' && nextBet <= prevBet) {
-        const inThisPosition = amountIn.get(position) ?? Table.getInitialAmountIn(position);
         effectiveAction = 'call';
         effectiveCost = prevBet - inThisPosition;
         effectiveNextBet = prevBet;
         effectiveAmountIn.set(position, prevBet);
+        lastAction = 'call';
+        lastPosition = position;
+      } else if (action === 'raise' && cost > stackNow) {
+        effectiveCost = stackNow;
+        effectiveNextBet = inThisPosition + stackNow;
+        effectiveAmountIn.set(position, effectiveNextBet);
+      } else if (action === 'call' && cost > stackNow) {
+        effectiveCost = stackNow;
+        effectiveNextBet = inThisPosition + stackNow;
+        effectiveAmountIn.set(position, effectiveNextBet);
+      }
+
+      if (effectiveAction === 'raise' && effectiveNextBet <= prevBet) {
+        effectiveAction = 'call';
         lastAction = 'call';
         lastPosition = position;
       }
@@ -120,6 +162,7 @@ async function main(): Promise<void> {
 
       if (effectiveAction === 'fold') folded.add(position);
       if (effectiveAction === 'raise' && effectiveNextBet > prevBet) {
+        raiseCount += 1;
         lastAggressorIndex = idx;
         firstToActIndex = (idx + 1) % nPositions;
       }

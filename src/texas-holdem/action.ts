@@ -3,7 +3,7 @@ import type { PokerHand } from './deck.js';
 import { Table } from './table.js';
 import { TexasHoldem } from './rules.js';
 import { isHandInRange, getOpenRange } from './range.js';
-import { getMaxGroupForPosition, getRaiseMaxGroupForPosition } from './sklansky.js';
+import { getMaxGroupForPosition, getRaiseMaxGroupForPosition, getMaxGroupToCallVsRaise, getRaiseMaxGroupVsRaise } from './sklansky.js';
 import type { SklanskyGroup } from './sklansky.js';
 
 /** Ações pré-flop: fold (desistir), call (pagar), raise (aumentar). Check não é usado na primeira decisão pré-flop com blind em jogo. */
@@ -102,7 +102,9 @@ export function getActionByGroup(group: SklanskyGroup, position: string): Action
 
 /**
  * Decide a ação com contexto da ação anterior (fluxo sequencial).
- * Quando houve raise antes: fold se fora do range; raise só com grupo 1–2 (3-bet); call com 3–max.
+ * Cada decisão deve usar o grupo vindo do modelo (pesos) e a última ação:
+ * - Sem raise antes: fold/raise/call pelos limites normais da posição.
+ * - Com raise antes: exige mão melhor para continuar; call só até maxVsRaise, 3-bet só com grupo forte.
  */
 export function getActionByGroupWithContext(
   group: SklanskyGroup,
@@ -110,13 +112,17 @@ export function getActionByGroupWithContext(
   previousAction?: Action,
   _previousPosition?: string
 ): Action {
-  const max = getMaxGroupForPosition(position);
-  if (max === 0 || group > max) return 'fold';
-
   if (previousAction === 'raise') {
-    if (group <= 2) return 'raise';
+    const maxToCall = getMaxGroupToCallVsRaise(position);
+    if (maxToCall === 0 || group > maxToCall) return 'fold';
+    const raiseMaxVsRaise = getRaiseMaxGroupVsRaise(position);
+    if (group <= raiseMaxVsRaise) return 'raise';
     return 'call';
   }
 
-  return getActionByGroup(group, position);
+  const max = getMaxGroupForPosition(position);
+  if (max === 0 || group > max) return 'fold';
+  const raiseMax = getRaiseMaxGroupForPosition(position);
+  if (group <= raiseMax) return 'raise';
+  return 'call';
 }

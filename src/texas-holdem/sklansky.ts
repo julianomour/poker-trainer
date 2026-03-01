@@ -73,6 +73,38 @@ export function getRaiseMaxGroupForPosition(position: string): number {
   return max ?? 0;
 }
 
+/**
+ * Grupo máximo com que a posição pode continuar (call) quando alguém já fez raise.
+ * Exige mão melhor que a abertura: só continua com mãos mais fortes.
+ */
+const POSITION_MAX_GROUP_VS_RAISE: Record<string, number> = {
+  SB: 4, BB: 4,
+  UTG: 2, 'UTG+1': 3, 'UTG+2': 3,
+  MP: 3, HJ: 4,
+  CO: 4, BTN: 5,
+};
+
+/**
+ * Grupo máximo com que a posição faz 3-bet (raise) quando alguém já raiseou.
+ * Só mãos muito fortes 3-betam.
+ */
+const POSITION_RAISE_MAX_GROUP_VS_RAISE: Record<string, number> = {
+  SB: 2, BB: 2,
+  UTG: 1, 'UTG+1': 1, 'UTG+2': 2,
+  MP: 2, HJ: 2,
+  CO: 2, BTN: 2,
+};
+
+/** Retorna o grupo máximo jogável para call quando há raise antes (exige mão melhor). */
+export function getMaxGroupToCallVsRaise(position: string): number {
+  return POSITION_MAX_GROUP_VS_RAISE[position] ?? 0;
+}
+
+/** Retorna o grupo máximo com que a posição faz 3-bet (raise vs raise). */
+export function getRaiseMaxGroupVsRaise(position: string): number {
+  return POSITION_RAISE_MAX_GROUP_VS_RAISE[position] ?? 0;
+}
+
 /** Verifica se a mão está no range da posição (grupo <= maxGroup da posição). */
 export function isHandInPositionRange(hand: PokerHand, position: string): boolean {
   const max = getMaxGroupForPosition(position);
