@@ -2,7 +2,7 @@ import type { HandStrengthCategory } from './rules.js';
 import type { PokerHand } from './deck.js';
 import { Table } from './table.js';
 import { TexasHoldem } from './rules.js';
-import { isHandInRange, getOpenRange } from './range.js';
+import { isHandInRange, getOpenRange, getOpenRaiseRange } from './range.js';
 import { getMaxGroupForPosition, getRaiseMaxGroupForPosition, getMaxGroupToCallVsRaise, getRaiseMaxGroupVsRaise } from './sklansky.js';
 import type { SklanskyGroup } from './sklansky.js';
 
@@ -105,15 +105,39 @@ export function getActionByGroup(group: SklanskyGroup, position: string): Action
  * Cada decisão deve usar o grupo vindo do modelo (pesos) e a última ação:
  * - Sem raise antes: fold/raise/call pelos limites normais da posição.
  * - Com raise antes: exige mão melhor para continuar; call só até maxVsRaise, 3-bet só com grupo forte.
+ *
+ * Contexto opcional para o BB:
+ * - isSimpleRaise: true quando há apenas um raise na rua (desconto do BB torna call mais óbvio).
+ * - isHeadsUp: true quando restam só 2 jogadores (call do BB ainda mais óbvio).
+ */
+export interface ActionContext {
+  /** Há apenas um raise na rua (não é 3-bet). BB com desconto call mais fácil. */
+  isSimpleRaise?: boolean;
+  /** Restam só 2 jogadores na mão. BB em HU call mais fácil. */
+  isHeadsUp?: boolean;
+}
+
+/**
+ * Decide a ação com contexto da ação anterior (fluxo sequencial).
+ * Quando não há raise antes, se hand for passado usa o range de abertura (UTG–HJ: 44+, Axs, ATo+, 87s+; CO–BB: pares, K9o+, Axs, Q6s+) para raise; senão usa grupo Sklansky.
  */
 export function getActionByGroupWithContext(
   group: SklanskyGroup,
   position: string,
   previousAction?: Action,
-  _previousPosition?: string
+  _previousPosition?: string,
+  context?: ActionContext,
+  hand?: PokerHand
 ): Action {
   if (previousAction === 'raise') {
-    const maxToCall = getMaxGroupToCallVsRaise(position);
+    let maxToCall = getMaxGroupToCallVsRaise(position);
+    if (position === 'BB') {
+      if (context?.isHeadsUp) {
+        maxToCall = 7;
+      } else if (context?.isSimpleRaise) {
+        maxToCall = 6;
+      }
+    }
     if (maxToCall === 0 || group > maxToCall) return 'fold';
     const raiseMaxVsRaise = getRaiseMaxGroupVsRaise(position);
     if (group <= raiseMaxVsRaise) return 'raise';
@@ -122,6 +146,13 @@ export function getActionByGroupWithContext(
 
   const max = getMaxGroupForPosition(position);
   if (max === 0 || group > max) return 'fold';
+
+  if (hand != null) {
+    const openRaiseRange = getOpenRaiseRange(position);
+    if (isHandInRange(hand, openRaiseRange)) return 'raise';
+    return 'call';
+  }
+
   const raiseMax = getRaiseMaxGroupForPosition(position);
   if (group <= raiseMax) return 'raise';
   return 'call';

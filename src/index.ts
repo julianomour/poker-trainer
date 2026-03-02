@@ -11,9 +11,16 @@ import {
   predictSklanskyGroup,
   DEFAULT_WEIGHTS_PATH,
 } from './train-hand-strength.js';
+import {
+  loadDecisionModelWeights,
+  DEFAULT_DECISION_WEIGHTS_PATH,
+  predictDecisionAction,
+} from './train-decision-model.js';
+import type { DecisionContext, PreviousActionCategory } from './decision-features.js';
 
 async function main(): Promise<void> {
-  const model = loadModelWeights(DEFAULT_WEIGHTS_PATH);
+  const strengthModel = loadModelWeights(DEFAULT_WEIGHTS_PATH);
+  const decisionModel = loadDecisionModelWeights(DEFAULT_DECISION_WEIGHTS_PATH);
   const round = dealTwoCardsPerPosition(Table.positions);
   const handByPosition = new Map(
     round.map(({ position, hand }) => [position, hand])
@@ -22,8 +29,8 @@ async function main(): Promise<void> {
   const groupByPosition = new Map<string, SklanskyGroup>();
   for (const position of Table.clockwiseActionOrder) {
     const hand = handByPosition.get(position)!;
-    const group: SklanskyGroup = model
-      ? (predictSklanskyGroup(model, hand) as SklanskyGroup)
+    const group: SklanskyGroup = strengthModel
+      ? (predictSklanskyGroup(strengthModel, hand) as SklanskyGroup)
       : getSklanskyGroup(hand);
     groupByPosition.set(position, group);
   }
@@ -31,9 +38,53 @@ async function main(): Promise<void> {
   // Helper: obtém grupo da mão consultando o modelo (usado a cada decisão).
   function getGroupForDecision(position: string): SklanskyGroup {
     const hand = handByPosition.get(position)!;
-    return model
-      ? (predictSklanskyGroup(model, hand) as SklanskyGroup)
+    return strengthModel
+      ? (predictSklanskyGroup(strengthModel, hand) as SklanskyGroup)
       : getSklanskyGroup(hand);
+  }
+
+  function buildPreviousActionCategory(
+    lastAction: 'fold' | 'call' | 'raise' | undefined,
+    raiseCount: number
+  ): PreviousActionCategory {
+    if (lastAction == null) return 'none';
+    if (lastAction === 'call') return 'limp';
+    if (lastAction === 'raise' && raiseCount <= 1) return 'raise';
+    return 'threeBetOrMore';
+  }
+
+  function buildDecisionContext(
+    position: string,
+    lastAction: 'fold' | 'call' | 'raise' | undefined,
+    lastPosition: string | undefined,
+    raiseCount: number,
+    stacks: Map<string, number>
+  ): DecisionContext {
+    const previousAction = buildPreviousActionCategory(lastAction, raiseCount);
+    const previousPosition =
+      previousAction === 'none' ? undefined : lastPosition;
+    const stackNow = stacks.get(position) ?? Table.STACK_DEFAULT;
+    const effectiveStackBb = stackNow / Table.BB_BLIND;
+
+    const tournamentType: 'vanilla' | 'pko' = 'vanilla';
+
+    // Simplificação inicial: RP baixo e vilões não necessariamente passivos.
+    const isRpLow = true;
+    const areLeftPlayersPassive = false;
+
+    const heroCoverage: 'coversVillain' | 'coveredByVillain' | 'similarStack' =
+      'similarStack';
+
+    return {
+      position,
+      previousAction,
+      previousPosition,
+      effectiveStackBb,
+      tournamentType,
+      isRpLow,
+      areLeftPlayersPassive,
+      heroCoverage,
+    };
   }
 
   // --- Sessão 1: Definição das cartas e força da mão ---
@@ -102,12 +153,32 @@ async function main(): Promise<void> {
 
       // Cada decisão: identifica ação anterior, consulta o modelo (pesos) e determina a ação.
       const group = getGroupForDecision(position);
-      let action = getActionByGroupWithContext(
-        group,
-        position,
-        lastAction,
-        lastPosition
-      );
+      const remainingCount = actionOrder.filter((p) => !folded.has(p)).length;
+      const isHeadsUp = remainingCount === 2;
+      const isSimpleRaise = raiseCount === 1;
+      const hand = handByPosition.get(position)!;
+
+      let action: 'fold' | 'call' | 'raise';
+
+      if (decisionModel) {
+        const decisionContext = buildDecisionContext(
+          position,
+          lastAction,
+          lastPosition,
+          raiseCount,
+          stacks
+        );
+        action = predictDecisionAction(decisionModel, hand, decisionContext);
+      } else {
+        action = getActionByGroupWithContext(
+          group,
+          position,
+          lastAction,
+          lastPosition,
+          { isSimpleRaise, isHeadsUp },
+          hand
+        );
+      }
       if (action === 'raise' && raiseCount >= Table.MAX_RAISES_PER_STREET) {
         action = 'call';
       }
@@ -206,7 +277,7 @@ async function main(): Promise<void> {
     console.log(`${position} - stack ${stack} - ${action} - ${status}`);
   }
 
-  if (!model) {
+  if (!strengthModel) {
     console.log(
       '\n(Dica: rode "pnpm run train" para treinar e salvar o modelo; os grupos Sklansky estão sendo usados pelas regras.)'
     );

@@ -70,15 +70,12 @@ describe('sklansky', () => {
   });
 
   describe('getMaxGroupForPosition', () => {
-    it('returns 3 for UTG (early)', () => {
-      assert.strictEqual(getMaxGroupForPosition('UTG'), 3);
-    });
-    it('returns 4 for UTG+1 and UTG+2 (play 88)', () => {
-      assert.strictEqual(getMaxGroupForPosition('UTG+1'), 4);
-      assert.strictEqual(getMaxGroupForPosition('UTG+2'), 4);
-    });
-    it('returns 5 for MP', () => {
-      assert.strictEqual(getMaxGroupForPosition('MP'), 5);
+    it('returns 7 for UTG through HJ (open-raise range 44+/87s+ etc.)', () => {
+      assert.strictEqual(getMaxGroupForPosition('UTG'), 7);
+      assert.strictEqual(getMaxGroupForPosition('UTG+1'), 7);
+      assert.strictEqual(getMaxGroupForPosition('UTG+2'), 7);
+      assert.strictEqual(getMaxGroupForPosition('MP'), 7);
+      assert.strictEqual(getMaxGroupForPosition('HJ'), 7);
     });
     it('returns 7 for CO and BTN', () => {
       assert.strictEqual(getMaxGroupForPosition('CO'), 7);

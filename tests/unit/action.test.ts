@@ -38,7 +38,7 @@ describe('action', () => {
 
   describe('getActionByGroup', () => {
     it('folds when group exceeds max for position', () => {
-      assert.strictEqual(getActionByGroup(5, 'UTG'), 'fold');
+      assert.strictEqual(getActionByGroup(8, 'UTG'), 'fold');
       assert.strictEqual(getActionByGroup(8, 'MP'), 'fold');
     });
     it('raises for groups 1-2', () => {
@@ -60,9 +60,25 @@ describe('action', () => {
       assert.strictEqual(getActionByGroupWithContext(2, 'CO', 'raise', 'UTG'), 'raise');
       assert.strictEqual(getActionByGroupWithContext(4, 'BTN', 'raise', 'UTG+1'), 'call');
     });
-    it('with no previous action uses same as getActionByGroup', () => {
+    it('with no previous action uses same as getActionByGroup when hand not provided', () => {
       assert.strictEqual(getActionByGroupWithContext(4, 'UTG+1'), 'raise');
-      assert.strictEqual(getActionByGroupWithContext(5, 'UTG'), 'fold');
+      assert.strictEqual(getActionByGroupWithContext(5, 'UTG'), 'call');
+    });
+    it('BB vs raise: desconto em raise simples (call até grupo 6)', () => {
+      assert.strictEqual(getActionByGroupWithContext(5, 'BB', 'raise', 'CO'), 'fold');
+      assert.strictEqual(getActionByGroupWithContext(5, 'BB', 'raise', 'CO', { isSimpleRaise: true }), 'call');
+      assert.strictEqual(getActionByGroupWithContext(6, 'BB', 'raise', 'BTN', { isSimpleRaise: true }), 'call');
+      assert.strictEqual(getActionByGroupWithContext(7, 'BB', 'raise', 'CO', { isSimpleRaise: true }), 'fold');
+    });
+    it('BB vs raise: heads-up call mais óbvio (até grupo 7)', () => {
+      assert.strictEqual(getActionByGroupWithContext(7, 'BB', 'raise', 'BTN', { isHeadsUp: true }), 'call');
+      assert.strictEqual(getActionByGroupWithContext(8, 'BB', 'raise', 'BTN', { isHeadsUp: true }), 'fold');
+    });
+    it('com hand: usa open-raise range (44 raise UTG, 33 call UTG)', () => {
+      const pair44 = hand(CardValue.Four, Suite.Clubs, CardValue.Four, Suite.Diamonds);
+      const pair33 = hand(CardValue.Three, Suite.Hearts, CardValue.Three, Suite.Spades);
+      assert.strictEqual(getActionByGroupWithContext(6, 'UTG', undefined, undefined, undefined, pair44), 'raise');
+      assert.strictEqual(getActionByGroupWithContext(6, 'UTG', undefined, undefined, undefined, pair33), 'call');
     });
   });
 

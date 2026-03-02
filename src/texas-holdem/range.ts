@@ -8,6 +8,113 @@ export type Range = (hand: PokerHand) => boolean;
 /** Ação do vilão para definir seu range. Deve ser igual a action.Action. */
 export type Action = 'fold' | 'call' | 'raise';
 
+/** Posições early: UTG até HJ. Raise range: 44+, todos A suited, ATo+, 87s+. */
+const EARLY_RAISE_POSITIONS = new Set(['UTG', 'UTG+1', 'UTG+2', 'MP', 'HJ']);
+
+/** Posições late: CO para frente. Raise range: todos pares, K9o+, todos A suited, Q6s+. */
+const LATE_RAISE_POSITIONS = new Set(['CO', 'BTN', 'SB', 'BB']);
+
+function highLow(hand: PokerHand): { high: number; low: number } {
+  const a = hand.first.value;
+  const b = hand.second.value;
+  return a >= b ? { high: a, low: b } : { high: b, low: a };
+}
+
+function isPair(hand: PokerHand): boolean {
+  return hand.first.value === hand.second.value;
+}
+
+function isSuited(hand: PokerHand): boolean {
+  return hand.first.suit === hand.second.suit;
+}
+
+/** Pares 44+ (valor do par >= 4). */
+function isPair44Plus(hand: PokerHand): boolean {
+  if (!isPair(hand)) return false;
+  return hand.first.value >= 4;
+}
+
+/** Todos os A suited (A2s até AKs). */
+function isAceSuited(hand: PokerHand): boolean {
+  const h = highLow(hand);
+  if (h.high !== 14) return false;
+  return isSuited(hand);
+}
+
+/** ATo+ (Ás com T ou melhor: AT, AJ, AQ, AK). */
+function isAToPlus(hand: PokerHand): boolean {
+  const h = highLow(hand);
+  if (h.high !== 14) return false;
+  return h.low >= 10;
+}
+
+/** 87s+ = suited connectors com carta alta >= 8 (87s, 98s, T9s, JTs, QJs, KQs, AKs). */
+function is87sPlus(hand: PokerHand): boolean {
+  if (!isSuited(hand)) return false;
+  const h = highLow(hand);
+  if (h.high - h.low > 1) return false;
+  return h.high >= 8;
+}
+
+/** Early raise: 44+, todos A suited, ATo+, 87s+. */
+function isInEarlyRaiseRange(hand: PokerHand): boolean {
+  return (
+    isPair44Plus(hand) ||
+    isAceSuited(hand) ||
+    isAToPlus(hand) ||
+    is87sPlus(hand)
+  );
+}
+
+/** Todos os pares (22+). */
+function isAnyPair(hand: PokerHand): boolean {
+  return isPair(hand);
+}
+
+/** K9o+ (K com 9 ou melhor: K9, KT, KJ, KQ, KA; suited ou off). */
+function isK9oPlus(hand: PokerHand): boolean {
+  const h = highLow(hand);
+  if (h.high !== 13) return false;
+  return h.low >= 9;
+}
+
+/** Q6s+ (Q com 6 ou melhor suited: Q6s até KQs, AKs). */
+function isQ6sPlus(hand: PokerHand): boolean {
+  if (!isSuited(hand)) return false;
+  const h = highLow(hand);
+  return h.high >= 12 && h.low >= 6;
+}
+
+/** Late raise: todos pares, K9o+, todos A suited, Q6s+. */
+function isInLateRaiseRange(hand: PokerHand): boolean {
+  return (
+    isAnyPair(hand) ||
+    isK9oPlus(hand) ||
+    isAceSuited(hand) ||
+    isQ6sPlus(hand)
+  );
+}
+
+/**
+ * Retorna o range de abertura com raise por posição.
+ * - UTG até HJ: pares 44+, todos A suited, ATo+, 87s+.
+ * - CO para frente: todos pares, K9o+, todos A suited, Q6s+.
+ */
+export function getOpenRaiseRange(position: string): Range {
+  if (EARLY_RAISE_POSITIONS.has(position)) {
+    return isInEarlyRaiseRange;
+  }
+  if (LATE_RAISE_POSITIONS.has(position)) {
+    return isInLateRaiseRange;
+  }
+  return () => false;
+}
+
+/** Verifica se a mão está no range de abertura com raise da posição. */
+export function isHandInOpenRaiseRange(hand: PokerHand, position: string): boolean {
+  return isHandInRange(hand, getOpenRaiseRange(position));
+}
+
 /** Limiar de peso de posição: abaixo disso, mãos fracas = fold. Deve ser igual ao de action.ts. */
 const POSITION_FOLD_THRESHOLD = 0.5;
 

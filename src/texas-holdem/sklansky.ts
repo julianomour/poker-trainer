@@ -45,11 +45,11 @@ export function getSklanskyGroup(hand: PokerHand): SklanskyGroup {
   return group ?? 8;
 }
 
-/** Máximo grupo jogável por posição (Sklansky): early = 3, MP = 5, late = 7, blinds = 8. UTG+1/UTG+2 podem jogar até grupo 4 (ex.: 88). */
+/** Máximo grupo jogável por posição (Sklansky). Early usa range explícito (44+, Axs, ATo+, 87s+) então max 7; late 7–8. */
 const POSITION_MAX_GROUP: Record<string, SklanskyGroup> = {
   SB: 8, BB: 8,
-  UTG: 3, 'UTG+1': 4, 'UTG+2': 4,
-  MP: 5, HJ: 5,
+  UTG: 7, 'UTG+1': 7, 'UTG+2': 7,
+  MP: 7, HJ: 7,
   CO: 7, BTN: 7,
 };
 

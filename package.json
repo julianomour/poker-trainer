@@ -9,6 +9,7 @@
     "start": "tsx --no-warnings --watch src/index.ts",
     "start:prod": "node dist/src/index.js",
     "train": "tsx src/run-train.ts",
+    "train:decision": "tsx src/run-train-decision.ts",
     "test": "pnpm test:run",
     "test:run": "pnpm build && node --test 'dist/tests/**/*.test.js'",
     "lint": "tsc --noEmit && eslint .",
