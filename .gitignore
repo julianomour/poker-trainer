@@ -6,4 +6,5 @@
 coverage
 .vitest
 model-weights.json
+decision-model-weights.json
 .cursor
