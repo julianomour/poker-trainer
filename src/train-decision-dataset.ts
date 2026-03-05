@@ -21,12 +21,13 @@ export interface DecisionTrainingData {
   y: number[][];
 }
 
-type ScenarioType = 'openRfi' | 'vsRaise' | 'blindWar';
+type ScenarioType = 'openRfi' | 'vsRaise' | 'vsFold' | 'blindWar';
 
 function sampleScenario(): ScenarioType {
   const r = Math.random();
-  if (r < 0.5) return 'openRfi';
-  if (r < 0.8) return 'vsRaise';
+  if (r < 0.45) return 'openRfi';
+  if (r < 0.70) return 'vsRaise';
+  if (r < 0.85) return 'vsFold';
   return 'blindWar';
 }
 
@@ -37,7 +38,7 @@ function sampleEffectiveStackBb(): number {
 }
 
 function sampleTournamentType(): TournamentType {
-  return Math.random() < 0.8 ? 'vanilla' : 'pko';
+  return Math.random() < 0.35 ? 'vanilla' : 'pko';
 }
 
 function sampleHeroCoverage(): HeroCoverage {
@@ -63,7 +64,7 @@ function buildDecisionContextAndLabel(
   const effectiveStackBb = sampleEffectiveStackBb();
   const tournamentType = sampleTournamentType();
   const isRpLow = true;
-  const areLeftPlayersPassive = Math.random() < 0.5;
+  const areLeftPlayersPassive = Math.random() < 0.2;
   const heroCoverage = sampleHeroCoverage();
 
   let position: string;
@@ -90,6 +91,15 @@ function buildDecisionContextAndLabel(
       isSimpleRaise: true,
       isHeadsUp: false,
     };
+  } else if (scenario === 'vsFold') {
+    // Vilão anterior foldou; herói decide como se fosse abertura (ninguém raiseou).
+    const villainIdx = Math.floor(Math.random() * (preflopOrder.length - 1));
+    const heroIdx = villainIdx + 1;
+    position = preflopOrder[heroIdx];
+    previousPosition = preflopOrder[villainIdx];
+    previousActionCategory = 'fold';
+    lastActionForRules = 'fold';
+    lastPositionForRules = previousPosition;
   } else {
     const sbOrBb = Math.random() < 0.5 ? 'SB' : 'BB';
     position = sbOrBb;
@@ -126,7 +136,13 @@ function buildDecisionContextAndLabel(
     hand
   );
 
-  const label = rulesAction as DecisionActionCategory;
+  let label = rulesAction as DecisionActionCategory;
+
+  // Adaptação: apenas o SB pode ter call como ação de treino.
+  // Para outras posições, se a regra sugerir call, tratamos como raise
+  if (position !== 'SB' && label === 'call') {
+    label = 'raise';
+  }
 
   const context: DecisionContext = {
     position,

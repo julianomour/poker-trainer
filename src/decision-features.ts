@@ -6,6 +6,7 @@ export type DecisionActionCategory = 'fold' | 'call' | 'raise';
 
 export type PreviousActionCategory =
   | 'none'
+  | 'fold'
   | 'limp'
   | 'raise'
   | 'threeBetOrMore';
@@ -33,18 +34,18 @@ export interface DecisionContext {
  *
  * Ordem dos campos:
  * - [0..33]   mão (one-hot)                     34 dims
- * - [34..42]  posição do herói                  9 dims (Table.positions)
- * - [43..46]  categoria da ação anterior        4 dims (none/limp/raise/threeBetOrMore)
- * - [47..55]  posição do vilão anterior         9 dims (Table.positions, ou tudo 0 se previousAction = 'none')
- * - [56..59]  bucket de stack efetivo em BB     4 dims (<20, 20–30, 30–50, >50)
- * - [60..61]  tipo de torneio                   2 dims (vanilla/pko)
- * - [62]      flag RP baixo                     1 dim  (0/1)
- * - [63]      vilões passivos à esquerda        1 dim  (0/1)
- * - [64..66]  relacionamento de cobertura       3 dims (covers/covered/similar)
+ * - [34..42]  posição do herói (one-hot)        9 dims (Table.positions)
+ * - [43..47]  categoria da ação anterior       5 dims (none/fold/limp/raise/threeBetOrMore)
+ * - [48..56]  posição do vilão anterior (one-hot) 9 dims (ou 0 se previousAction = 'none')
+ * - [57..60]  bucket de stack efetivo em BB     4 dims (<20, 20–30, 30–50, >50)
+ * - [61..62]  tipo de torneio                   2 dims (vanilla/pko)
+ * - [63]      flag RP baixo                     1 dim  (0/1)
+ * - [64]      vilões passivos à esquerda        1 dim  (0/1)
+ * - [65..67]  relacionamento de cobertura       3 dims (covers/covered/similar)
  *
- * Total: 67 dimensões.
+ * Total: 68 dimensões.
  */
-export const DECISION_FEATURE_DIM = 67;
+export const DECISION_FEATURE_DIM = 68;
 
 const encoder = new TensorFlowPatterns();
 
@@ -68,6 +69,7 @@ function oneHotFromEnum<T extends string>(
 
 const PREVIOUS_ACTION_VALUES: readonly PreviousActionCategory[] = [
   'none',
+  'fold',
   'limp',
   'raise',
   'threeBetOrMore',
@@ -114,7 +116,7 @@ export function handAndContextToDecisionFeatures(
   );
 
   const previousPositionOneHot =
-    context.previousAction === 'none'
+    context.previousAction === 'none' || context.previousPosition == null
       ? new Array<number>(Table.positions.length).fill(0)
       : oneHotFromList(Table.positions, context.previousPosition);
 
