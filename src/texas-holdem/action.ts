@@ -6,8 +6,8 @@ import { isHandInRange, getOpenRange, getOpenRaiseRange } from './range.js';
 import { getMaxGroupForPosition, getRaiseMaxGroupForPosition, getMaxGroupToCallVsRaise, getRaiseMaxGroupVsRaise } from './sklansky.js';
 import type { SklanskyGroup } from './sklansky.js';
 
-/** Ações pré-flop: fold (desistir), call (pagar), raise (aumentar). Check não é usado na primeira decisão pré-flop com blind em jogo. */
-export type Action = 'fold' | 'call' | 'raise';
+/** Ações pré-flop: fold (desistir), call (pagar), raise (aumentar). Check só é usado na primeira decisão pré-flop pelo Big Blind em caso de algum jogador apenas ter feito call e a mão for ruim o suficiente para ser foldada. */
+export type Action = 'fold' | 'call' | 'raise' | 'check';
 
 /**
  * Parâmetros para decisão com contexto de ação anterior (ação do vilão + range do vilão + nossa mão e posição).
@@ -85,6 +85,10 @@ export function getActionWithContext(params: ActionParams): Action {
     return getAction(category, currentPosition);
   }
 
+  if (previousAction === 'check') {
+    return getAction(category, currentPosition);
+  }
+
   return getAction(category, currentPosition);
 }
 
@@ -141,6 +145,19 @@ export function getActionByGroupWithContext(
     if (maxToCall === 0 || group > maxToCall) return 'fold';
     const raiseMaxVsRaise = getRaiseMaxGroupVsRaise(position);
     if (group <= raiseMaxVsRaise) return 'raise';
+    return 'call';
+  }
+
+  if (previousAction === 'check') {
+    const max = getMaxGroupForPosition(position);
+    if (max === 0 || group > max) return 'fold';
+    if (hand != null) {
+      const openRaiseRange = getOpenRaiseRange(position);
+      if (isHandInRange(hand, openRaiseRange)) return 'raise';
+      return 'call';
+    }
+    const raiseMax = getRaiseMaxGroupForPosition(position);
+    if (group <= raiseMax) return 'raise';
     return 'call';
   }
 

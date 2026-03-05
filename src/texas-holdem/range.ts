@@ -1,12 +1,13 @@
 import type { PokerHand } from './deck.js';
+import type { Action } from './action.js';
 import { TexasHoldem } from './rules.js';
 import { Table } from './table.js';
 
 /** Predicado: a mão está no range? */
 export type Range = (hand: PokerHand) => boolean;
 
-/** Ação do vilão para definir seu range. Deve ser igual a action.Action. */
-export type Action = 'fold' | 'call' | 'raise';
+/** Reexporta Action para manter range alinhado às ações do jogo. */
+export type { Action };
 
 /** Posições early: UTG até HJ. Raise range: 44+, todos A suited, ATo+, 87s+. */
 const EARLY_RAISE_POSITIONS = new Set(['UTG', 'UTG+1', 'UTG+2', 'MP', 'HJ']);
@@ -121,7 +122,7 @@ const POSITION_FOLD_THRESHOLD = 0.5;
 function actionFromCategoryAndPosition(
   category: ReturnType<typeof TexasHoldem.classifyHand>,
   position: string
-): Action {
+): Exclude<Action, 'check'> {
   const positionWeight = Table.getPositionWeight(position);
   const level = category[1];
   if (level === 'weak' && positionWeight < POSITION_FOLD_THRESHOLD) {
@@ -155,12 +156,14 @@ export function getOpenRange(position: string): Range {
  *
  * - 'raise': mãos com que o vilão faria raise (força strong na nossa classificação).
  * - 'call': mãos com que o vilão faria call (weak mas jogável na posição dele).
+ * - 'check': tratado como call (weak mas jogável).
  * - 'fold': mãos com que o vilão foldaria (fora do range open).
  */
 export function getRangeForAction(position: string, action: Action): Range {
+  const effectiveAction = action === 'check' ? 'call' : action;
   return (hand: PokerHand) => {
     const category = TexasHoldem.classifyHand(hand);
-    return actionFromCategoryAndPosition(category, position) === action;
+    return actionFromCategoryAndPosition(category, position) === effectiveAction;
   };
 }
 

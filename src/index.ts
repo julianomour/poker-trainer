@@ -1,8 +1,9 @@
 import {
   dealTwoCardsPerPosition,
   formatHandShort,
+  type PokerHand,
 } from './texas-holdem/deck.js';
-import { getActionByGroupWithContext } from './texas-holdem/action.js';
+import { getActionByGroupWithContext, type Action } from './texas-holdem/action.js';
 import { getSklanskyGroup } from './texas-holdem/sklansky.js';
 import type { SklanskyGroup } from './texas-holdem/sklansky.js';
 import { Table } from './texas-holdem/table.js';
@@ -17,6 +18,261 @@ import {
   predictDecisionAction,
 } from './train-decision-model.js';
 import type { DecisionContext, PreviousActionCategory } from './decision-features.js';
+
+interface PreflopResult {
+  currentBet: number;
+  amountIn: Map<string, number>;
+  stacks: Map<string, number>;
+  folded: Set<string>;
+  actionByPosition: Map<string, Action>;
+}
+
+function buildPreviousActionCategory(
+  lastAction: Action | undefined,
+  raiseCount: number
+): PreviousActionCategory {
+  if (lastAction == null) return 'none';
+  if (lastAction === 'fold') return 'fold';
+  if (lastAction === 'check') return 'limp';
+  if (lastAction === 'call') return 'limp';
+  if (lastAction === 'raise' && raiseCount <= 1) return 'raise';
+  return 'threeBetOrMore';
+}
+
+function buildDecisionContext(
+  position: string,
+  lastAction: Action | undefined,
+  lastPosition: string | undefined,
+  raiseCount: number,
+  stacks: Map<string, number>
+): DecisionContext {
+  const previousAction = buildPreviousActionCategory(lastAction, raiseCount);
+  const previousPosition =
+    previousAction === 'none' ? undefined : lastPosition;
+  const stackNow = stacks.get(position) ?? Table.STACK_DEFAULT;
+  const effectiveStackBb = stackNow / Table.BB_BLIND;
+
+  const tournamentType: 'vanilla' | 'pko' = 'vanilla';
+
+  // Simplificação inicial: RP baixo e vilões não necessariamente passivos.
+  const isRpLow = true;
+  const areLeftPlayersPassive = false;
+
+  const heroCoverage: 'coversVillain' | 'coveredByVillain' | 'similarStack' =
+    'similarStack';
+
+  return {
+    position,
+    previousAction,
+    previousPosition,
+    effectiveStackBb,
+    tournamentType,
+    isRpLow,
+    areLeftPlayersPassive,
+    heroCoverage,
+  };
+}
+
+function runPreflopBetting(
+  actionOrder: string[],
+  handByPosition: Map<string, PokerHand>,
+  getGroupForDecision: (position: string) => SklanskyGroup,
+  decisionModel: ReturnType<typeof loadDecisionModelWeights>
+): PreflopResult {
+  const nPositions = actionOrder.length;
+
+  let lastAction: Action | undefined;
+  let lastPosition: string | undefined;
+  let currentBet = Table.BB_BLIND;
+  const amountIn = new Map<string, number>(
+    Table.positions.map((p) => [p, Table.getInitialAmountIn(p)])
+  );
+  const stacks = new Map<string, number>(
+    Table.positions.map((p) => [
+      p,
+      Table.STACK_DEFAULT - Table.getInitialAmountIn(p),
+    ])
+  );
+  const folded = new Set<string>();
+  let firstToActIndex = 0; // primeira posição no sentido horário (UTG)
+  let lastAggressorIndex = nPositions - 1; // BB fecha a primeira rodada
+  let raiseCount = 0; // número de raises na rua; após MAX_RAISES_PER_STREET só fold/call
+  const actionByPosition = new Map<string, Action>();
+
+  function allBetsEqual(): boolean {
+    return actionOrder.every(
+      (p) => folded.has(p) || (amountIn.get(p) ?? 0) === currentBet
+    );
+  }
+
+  console.log('\n--- Ação de todas as posições (fluxo horário) ---');
+
+  let done = false;
+  let isFirstCycle = true;
+
+  while (!done) {
+    if (!isFirstCycle) {
+      if (allBetsEqual()) {
+        done = true;
+        break;
+      }
+      // Posição que "recebe" a volta = anterior ao primeiro não-folded que vai agir (mesa rodou até ela)
+      let firstNonFoldedIdx = firstToActIndex;
+      for (let k = 0; k < nPositions; k++) {
+        const j = (firstToActIndex + k) % nPositions;
+        if (!folded.has(actionOrder[j])) {
+          firstNonFoldedIdx = j;
+          break;
+        }
+      }
+      const returnToPosition =
+        actionOrder[(firstNonFoldedIdx - 1 + nPositions) % nPositions];
+      console.log(`\n--- Ação volta para ${returnToPosition} ---`);
+    }
+
+    isFirstCycle = false;
+    const roundStartIndex = firstToActIndex;
+
+    for (let i = 0; i < nPositions; i++) {
+      const idx = (roundStartIndex + i) % nPositions;
+      const position = actionOrder[idx];
+      if (folded.has(position)) continue;
+
+      const inThisPositionAtStart =
+        amountIn.get(position) ?? Table.getInitialAmountIn(position);
+      const costToContinue = currentBet - inThisPositionAtStart;
+
+      // Cada decisão: identifica ação anterior, consulta o modelo (pesos) e determina a ação.
+      const group = getGroupForDecision(position);
+      const remainingCount = actionOrder.filter((p) => !folded.has(p)).length;
+      const isHeadsUp = remainingCount === 2;
+      const isSimpleRaise = raiseCount === 1;
+      const hand = handByPosition.get(position)!;
+
+      let action: Action;
+
+      if (decisionModel) {
+        const decisionContext = buildDecisionContext(
+          position,
+          lastAction,
+          lastPosition,
+          raiseCount,
+          stacks
+        );
+        action = predictDecisionAction(decisionModel, hand, decisionContext);
+      } else {
+        action = getActionByGroupWithContext(
+          group,
+          position,
+          lastAction,
+          lastPosition,
+          { isSimpleRaise, isHeadsUp },
+          hand
+        );
+      }
+
+      // Fold só faz sentido se há custo para continuar. Se custo 0, tratamos como check.
+      if (action === 'fold' && costToContinue === 0) {
+        action = 'call';
+      }
+      if (action === 'raise' && raiseCount >= Table.MAX_RAISES_PER_STREET) {
+        action = 'call';
+      }
+      // Sempre registramos última ação e posição para o próximo jogador (inclui fold).
+      lastAction = action;
+      lastPosition = position;
+      actionByPosition.set(position, action);
+
+      const { cost, nextBet, newAmountIn } = Table.getCostAndNextBet(
+        position,
+        action,
+        currentBet,
+        amountIn
+      );
+      const prevBet = currentBet;
+      let effectiveAction: Action = action;
+      let effectiveCost = cost;
+      let effectiveNextBet = nextBet;
+      const effectiveAmountIn = new Map(newAmountIn);
+
+      const stackNow = stacks.get(position) ?? Table.STACK_DEFAULT;
+      const inThisPosition = inThisPositionAtStart;
+
+      if (action === 'raise' && nextBet <= prevBet) {
+        effectiveAction = 'call';
+        effectiveCost = prevBet - inThisPosition;
+        effectiveNextBet = prevBet;
+        effectiveAmountIn.set(position, prevBet);
+        lastAction = 'call';
+        lastPosition = position;
+      } else if (action === 'raise' && cost > stackNow) {
+        effectiveCost = stackNow;
+        effectiveNextBet = inThisPosition + stackNow;
+        effectiveAmountIn.set(position, effectiveNextBet);
+      } else if (action === 'call' && cost > stackNow) {
+        effectiveCost = stackNow;
+        effectiveNextBet = inThisPosition + stackNow;
+        effectiveAmountIn.set(position, effectiveNextBet);
+      }
+
+      if (effectiveAction === 'raise' && effectiveNextBet <= prevBet) {
+        effectiveAction = 'call';
+        lastAction = 'call';
+        lastPosition = position;
+      }
+
+      if (effectiveAction === 'call' && effectiveCost === 0) {
+        effectiveAction = 'check';
+        lastAction = 'check';
+        lastPosition = position;
+      }
+
+      currentBet = effectiveNextBet;
+      effectiveAmountIn.forEach((v, p) => amountIn.set(p, v));
+      const stackAfter =
+        (stacks.get(position) ?? Table.STACK_DEFAULT) - effectiveCost;
+      stacks.set(position, stackAfter);
+
+      if (effectiveAction === 'fold') folded.add(position);
+      if (effectiveAction === 'raise' && effectiveNextBet > prevBet) {
+        raiseCount += 1;
+        lastAggressorIndex = idx;
+        firstToActIndex = (idx + 1) % nPositions;
+      }
+
+      actionByPosition.set(position, effectiveAction);
+
+      const foldCost = Table.getFoldCost(position);
+      const foldInfo =
+        foldCost > 0
+          ? ` | stack=${stackAfter} fold_custa=${foldCost}`
+          : ` | stack=${stackAfter}`;
+      const actionLabel =
+        effectiveAction === 'check'
+          ? 'check'
+          : effectiveAction === 'call' && effectiveCost === 0
+            ? 'check'
+            : effectiveAction;
+      console.log(
+        `${position} - ${actionLabel} (custo ${effectiveCost})${foldInfo}`
+      );
+
+      if (folded.size >= nPositions - 1) {
+        done = true;
+        break;
+      }
+      if (idx === lastAggressorIndex && allBetsEqual()) {
+        done = true;
+        break;
+      }
+    }
+
+    if (done) break;
+    // Ação circular: após um raise, a próxima posição age; quando se fecha no BB (ou último agressor), volta para quem estava na frente do raise
+  }
+
+  return { currentBet, amountIn, stacks, folded, actionByPosition };
+}
 
 async function main(): Promise<void> {
   const strengthModel = loadModelWeights(DEFAULT_WEIGHTS_PATH);
@@ -43,50 +299,6 @@ async function main(): Promise<void> {
       : getSklanskyGroup(hand);
   }
 
-  function buildPreviousActionCategory(
-    lastAction: 'fold' | 'call' | 'raise' | undefined,
-    raiseCount: number
-  ): PreviousActionCategory {
-    if (lastAction == null) return 'none';
-    if (lastAction === 'call') return 'limp';
-    if (lastAction === 'raise' && raiseCount <= 1) return 'raise';
-    return 'threeBetOrMore';
-  }
-
-  function buildDecisionContext(
-    position: string,
-    lastAction: 'fold' | 'call' | 'raise' | undefined,
-    lastPosition: string | undefined,
-    raiseCount: number,
-    stacks: Map<string, number>
-  ): DecisionContext {
-    const previousAction = buildPreviousActionCategory(lastAction, raiseCount);
-    const previousPosition =
-      previousAction === 'none' ? undefined : lastPosition;
-    const stackNow = stacks.get(position) ?? Table.STACK_DEFAULT;
-    const effectiveStackBb = stackNow / Table.BB_BLIND;
-
-    const tournamentType: 'vanilla' | 'pko' = 'vanilla';
-
-    // Simplificação inicial: RP baixo e vilões não necessariamente passivos.
-    const isRpLow = true;
-    const areLeftPlayersPassive = false;
-
-    const heroCoverage: 'coversVillain' | 'coveredByVillain' | 'similarStack' =
-      'similarStack';
-
-    return {
-      position,
-      previousAction,
-      previousPosition,
-      effectiveStackBb,
-      tournamentType,
-      isRpLow,
-      areLeftPlayersPassive,
-      heroCoverage,
-    };
-  }
-
   // --- Sessão 1: Definição das cartas e força da mão ---
   console.log('--- Definição das cartas e força da mão ---');
   for (const position of Table.clockwiseActionOrder) {
@@ -97,168 +309,13 @@ async function main(): Promise<void> {
 
   // --- Sessão 2: Ação de todas as posições (fluxo horário: 1ª vez todas as posições, depois a mesma ordem com quem ainda está na mão) ---
   const actionOrder = Table.clockwiseActionOrder;
-  const nPositions = actionOrder.length;
-
-  let lastAction: 'fold' | 'call' | 'raise' | undefined;
-  let lastPosition: string | undefined;
-  let currentBet = Table.BB_BLIND;
-  const amountIn = new Map<string, number>(
-    Table.positions.map((p) => [p, Table.getInitialAmountIn(p)])
-  );
-  const stacks = new Map<string, number>(
-    Table.positions.map((p) => [
-      p,
-      Table.STACK_DEFAULT - Table.getInitialAmountIn(p),
-    ])
-  );
-  const folded = new Set<string>();
-  let firstToActIndex = 0; // primeira posição no sentido horário (UTG)
-  let lastAggressorIndex = nPositions - 1; // BB fecha a primeira rodada
-  let raiseCount = 0; // número de raises na rua; após MAX_RAISES_PER_STREET só fold/call
-  const actionByPosition = new Map<string, 'fold' | 'call' | 'raise'>();
-
-  function allBetsEqual(): boolean {
-    return actionOrder.every(
-      (p) => folded.has(p) || (amountIn.get(p) ?? 0) === currentBet
-    );
-  }
-
-  console.log('\n--- Ação de todas as posições (fluxo horário) ---');
-  let done = false;
-  let isFirstCycle = true;
-  while (!done) {
-    if (!isFirstCycle) {
-      if (allBetsEqual()) {
-        done = true;
-        break;
-      }
-      // Posição que "recebe" a volta = anterior ao primeiro não-folded que vai agir (mesa rodou até ela)
-      let firstNonFoldedIdx = firstToActIndex;
-      for (let k = 0; k < nPositions; k++) {
-        const j = (firstToActIndex + k) % nPositions;
-        if (!folded.has(actionOrder[j])) {
-          firstNonFoldedIdx = j;
-          break;
-        }
-      }
-      const returnToPosition = actionOrder[(firstNonFoldedIdx - 1 + nPositions) % nPositions];
-      console.log(`\n--- Ação volta para ${returnToPosition} ---`);
-    }
-    isFirstCycle = false;
-    const roundStartIndex = firstToActIndex;
-    for (let i = 0; i < nPositions; i++) {
-      const idx = (roundStartIndex + i) % nPositions;
-      const position = actionOrder[idx];
-      if (folded.has(position)) continue;
-
-      // Cada decisão: identifica ação anterior, consulta o modelo (pesos) e determina a ação.
-      const group = getGroupForDecision(position);
-      const remainingCount = actionOrder.filter((p) => !folded.has(p)).length;
-      const isHeadsUp = remainingCount === 2;
-      const isSimpleRaise = raiseCount === 1;
-      const hand = handByPosition.get(position)!;
-
-      let action: 'fold' | 'call' | 'raise';
-
-      if (decisionModel) {
-        const decisionContext = buildDecisionContext(
-          position,
-          lastAction,
-          lastPosition,
-          raiseCount,
-          stacks
-        );
-        action = predictDecisionAction(decisionModel, hand, decisionContext);
-      } else {
-        action = getActionByGroupWithContext(
-          group,
-          position,
-          lastAction,
-          lastPosition,
-          { isSimpleRaise, isHeadsUp },
-          hand
-        );
-      }
-      if (action === 'raise' && raiseCount >= Table.MAX_RAISES_PER_STREET) {
-        action = 'call';
-      }
-      if (action !== 'fold') {
-        lastAction = action;
-        lastPosition = position;
-      }
-      actionByPosition.set(position, action);
-
-      const { cost, nextBet, newAmountIn } = Table.getCostAndNextBet(
-        position,
-        action,
-        currentBet,
-        amountIn
-      );
-      const prevBet = currentBet;
-      let effectiveAction = action;
-      let effectiveCost = cost;
-      let effectiveNextBet = nextBet;
-      const effectiveAmountIn = new Map(newAmountIn);
-
-      const stackNow = stacks.get(position) ?? Table.STACK_DEFAULT;
-      const inThisPosition = amountIn.get(position) ?? Table.getInitialAmountIn(position);
-
-      if (action === 'raise' && nextBet <= prevBet) {
-        effectiveAction = 'call';
-        effectiveCost = prevBet - inThisPosition;
-        effectiveNextBet = prevBet;
-        effectiveAmountIn.set(position, prevBet);
-        lastAction = 'call';
-        lastPosition = position;
-      } else if (action === 'raise' && cost > stackNow) {
-        effectiveCost = stackNow;
-        effectiveNextBet = inThisPosition + stackNow;
-        effectiveAmountIn.set(position, effectiveNextBet);
-      } else if (action === 'call' && cost > stackNow) {
-        effectiveCost = stackNow;
-        effectiveNextBet = inThisPosition + stackNow;
-        effectiveAmountIn.set(position, effectiveNextBet);
-      }
-
-      if (effectiveAction === 'raise' && effectiveNextBet <= prevBet) {
-        effectiveAction = 'call';
-        lastAction = 'call';
-        lastPosition = position;
-      }
-
-      currentBet = effectiveNextBet;
-      effectiveAmountIn.forEach((v, p) => amountIn.set(p, v));
-      const stackAfter = (stacks.get(position) ?? Table.STACK_DEFAULT) - effectiveCost;
-      stacks.set(position, stackAfter);
-
-      if (effectiveAction === 'fold') folded.add(position);
-      if (effectiveAction === 'raise' && effectiveNextBet > prevBet) {
-        raiseCount += 1;
-        lastAggressorIndex = idx;
-        firstToActIndex = (idx + 1) % nPositions;
-      }
-
-      actionByPosition.set(position, effectiveAction);
-
-      const foldCost = Table.getFoldCost(position);
-      const foldInfo =
-        foldCost > 0
-          ? ` | stack=${stackAfter} fold_custa=${foldCost}`
-          : ` | stack=${stackAfter}`;
-      console.log(`${position} - ${effectiveAction} (custo ${effectiveCost})${foldInfo}`);
-
-      if (folded.size >= nPositions - 1) {
-        done = true;
-        break;
-      }
-      if (idx === lastAggressorIndex && allBetsEqual()) {
-        done = true;
-        break;
-      }
-    }
-    if (done) break;
-    // Ação circular: após um raise, a próxima posição age; quando se fecha no BB (ou último agressor), volta para quem estava na frente do raise
-  }
+  const {
+    currentBet,
+    amountIn,
+    stacks,
+    folded,
+    actionByPosition,
+  } = runPreflopBetting(actionOrder, handByPosition, getGroupForDecision, decisionModel);
 
   // --- Sessão 3: Resultado final (1 vencedor ou apostas equivalentes) ---
   const potTotal = Array.from(amountIn.values()).reduce((a, b) => a + b, 0);

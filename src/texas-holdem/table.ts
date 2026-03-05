@@ -104,11 +104,12 @@ export class Table {
    * Custo da decisão e próximo estado da rua.
    * - fold: custo 0 para todos (SB/BB já tiveram o blind descontado no stack inicial).
    * - call: custo = currentBet - amountIn[position].
+   * - check: custo 0, nextBet = currentBet (só válido quando amountIn[position] === currentBet).
    * - raise: custo = nextBet - amountIn[position], com nextBet = currentBet + max(pote, MIN_RAISE_ADD).
    */
   static getCostAndNextBet(
     position: string,
-    action: 'fold' | 'call' | 'raise',
+    action: 'fold' | 'call' | 'raise' | 'check',
     currentBet: number,
     amountIn: Map<string, number>
   ): { cost: number; nextBet: number; newAmountIn: Map<string, number> } {
@@ -119,7 +120,7 @@ export class Table {
       return { cost: 0, nextBet: currentBet, newAmountIn };
     }
 
-    if (action === 'call') {
+    if (action === 'check' || action === 'call') {
       const cost = currentBet - inThisPosition;
       newAmountIn.set(position, currentBet);
       return { cost, nextBet: currentBet, newAmountIn };
